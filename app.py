@@ -2,27 +2,23 @@
 # AI Powered Multilingual Text Summarizer
 
 import streamlit as st
-import nltk
 import string
 from collections import Counter
 import matplotlib.pyplot as plt
 from langdetect import detect
-
-# Download required resources
-import os
 import nltk
+import os
 
-# Ensure NLTK data works on Streamlit Cloud
+# --------------------------
+# NLTK SETUP (STREAMLIT SAFE)
+# --------------------------
 nltk_data_path = os.path.join(os.getcwd(), "nltk_data")
 os.makedirs(nltk_data_path, exist_ok=True)
 nltk.data.path.append(nltk_data_path)
 
-nltk.download('punkt', download_dir=nltk_data_path)
 nltk.download('stopwords', download_dir=nltk_data_path)
-nltk.download('stopwords')
 
 from nltk.corpus import stopwords
-from nltk.tokenize import sent_tokenize, word_tokenize
 
 # --------------------------
 # PAGE CONFIG
@@ -30,27 +26,25 @@ from nltk.tokenize import sent_tokenize, word_tokenize
 st.set_page_config(page_title="AI Text Summarizer", layout="wide")
 
 # --------------------------
-# CUSTOM CSS (Gemini-like UI)
+# CUSTOM CSS (Modern UI)
 # --------------------------
 st.markdown("""
 <style>
 body {
     font-family: 'Segoe UI', sans-serif;
 }
-.main {
-    padding: 2rem;
-}
-.stTextArea textarea {
-    border-radius: 12px;
-}
 .block-container {
     padding-top: 2rem;
+    max-width: 900px;
+}
+textarea {
+    border-radius: 12px !important;
 }
 .card {
     background-color: #ffffff;
     padding: 20px;
     border-radius: 16px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 .footer {
     text-align: center;
@@ -73,7 +67,7 @@ def detect_language(text):
 
 
 def preprocess_text(text, lang):
-    # Custom sentence tokenization (avoids NLTK punkt dependency)
+    # Sentence splitting (safe)
     if lang == "Telugu":
         sentences = text.split(".")
     else:
@@ -81,36 +75,46 @@ def preprocess_text(text, lang):
 
     sentences = [s.strip() for s in sentences if s.strip()]
 
-    # Simple word tokenization
+    # Word tokenization
     words = text.lower().split()
 
-    stop_words = set(stopwords.words('english'))
-    words = [word for word in words if word not in stop_words and word not in string.punctuation]
+    # Stopwords
+    telugu_stopwords = ["ఈ", "ఆ", "లో", "కు", "పై", "కోసం", "తో", "ని"]
+
+    if lang == "Telugu":
+        stop_words = set(telugu_stopwords)
+    else:
+        stop_words = set(stopwords.words('english'))
+
+    words = [
+        word for word in words
+        if word not in stop_words and word not in string.punctuation
+    ]
 
     return sentences, words
 
 
-def summarize_text(text, ratio=0.3):
-    sentences, words = preprocess_text(text, 'en')
+def summarize_text(text, ratio=0.3, lang="English"):
+    sentences, words = preprocess_text(text, lang)
 
     word_freq = Counter(words)
 
     sentence_scores = {}
-    for sentence in sentences:
-        for word in word_tokenize(sentence.lower()):
-            if word in word_freq:
-                if sentence not in sentence_scores:
-                    sentence_scores[sentence] = word_freq[word]
-                else:
-                    sentence_scores[sentence] += word_freq[word]
 
-    # Sort sentences
+    for sentence in sentences:
+        words_in_sentence = sentence.lower().split()
+
+        for word in words_in_sentence:
+            if word in word_freq:
+                sentence_scores[sentence] = sentence_scores.get(sentence, 0) + word_freq[word]
+
+    # Rank sentences
     ranked_sentences = sorted(sentence_scores, key=sentence_scores.get, reverse=True)
 
-    select_length = int(len(sentences) * ratio)
-    summary = ranked_sentences[:select_length]
+    select_length = max(1, int(len(sentences) * ratio))
+    summary_sentences = ranked_sentences[:select_length]
 
-    return " ".join(summary), word_freq, sentences
+    return " ".join(summary_sentences), word_freq, sentences, summary_sentences
 
 
 def extract_keywords(word_freq, n=10):
@@ -121,6 +125,7 @@ def extract_keywords(word_freq, n=10):
 # SIDEBAR
 # --------------------------
 st.sidebar.title("⚙️ Controls")
+
 summary_length = st.sidebar.slider("Summary Length", 0.1, 1.0, 0.3)
 
 mode = st.sidebar.radio("Theme", ["Light", "Dark"])
@@ -128,7 +133,14 @@ mode = st.sidebar.radio("Theme", ["Light", "Dark"])
 if mode == "Dark":
     st.markdown("""
     <style>
-    body { background-color: #0E1117; color: white; }
+    .stApp {
+        background-color: #0E1117;
+        color: white;
+    }
+    textarea {
+        background-color: #1E1E1E !important;
+        color: white !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -137,79 +149,79 @@ if mode == "Dark":
 # --------------------------
 
 st.title("✨ AI Powered Multilingual Text Summarizer")
-st.markdown("""
-Summarize Telugu and English text using extractive NLP techniques.
-""")
+st.markdown("Summarize Telugu and English text using extractive NLP techniques.")
 
 user_input = st.text_area("Enter your text here:", height=250)
 
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 
 with col1:
-    summarize_btn = st.button("Summarize")
+    summarize_btn = st.button("🚀 Summarize")
 
 with col2:
-    clear_btn = st.button("Clear")
-
-with col3:
-    download_btn = st.button("Download Summary")
+    clear_btn = st.button("🧹 Clear")
 
 # --------------------------
 # LOGIC
 # --------------------------
 
 if clear_btn:
-    user_input = ""
+    st.session_state["text"] = ""
+    st.experimental_rerun()
 
 if summarize_btn:
     if not user_input.strip():
-        st.error("Please enter some text!")
+        st.error("⚠️ Please enter some text!")
     else:
-        with st.spinner("Processing..."):
+        with st.spinner("⏳ Processing..."):
             lang = detect_language(user_input)
-            summary, word_freq, sentences = summarize_text(user_input, summary_length)
+
+            summary, word_freq, sentences, summary_sentences = summarize_text(
+                user_input, summary_length, lang
+            )
+
             keywords = extract_keywords(word_freq)
 
-        st.success(f"Detected Language: {lang}")
+        st.success(f"🌐 Detected Language: {lang}")
 
+        # Original Text
         st.subheader("📄 Original Text")
-        st.write(user_input)
+        for sentence in sentences:
+            if sentence in summary_sentences:
+                st.markdown(f"**🟢 {sentence}**")
+            else:
+                st.write(sentence)
 
+        # Summary
         st.subheader("📝 Summary")
         st.write(summary)
 
         # Keywords
         st.subheader("🔑 Keywords")
-        for word, freq in keywords:
-            st.write(f"{word} ({freq})")
+        st.write(", ".join([word for word, _ in keywords]))
 
         # Word Frequency Chart
         st.subheader("📊 Word Frequency")
-        words = [w for w, f in keywords]
-        freqs = [f for w, f in keywords]
+        words = [w for w, _ in keywords]
+        freqs = [f for _, f in keywords]
 
         fig, ax = plt.subplots()
         ax.bar(words, freqs)
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
-        # Download
-        if download_btn:
-            st.download_button("Download", summary, file_name="summary.txt")
+        # Download Button (FIXED)
+        st.download_button(
+            "📥 Download Summary",
+            summary,
+            file_name="summary.txt"
+        )
 
 # --------------------------
 # FOOTER
 # --------------------------
 st.markdown("""
 <div class='footer'>
-Built with ❤️ using Streamlit | Telugu NLP Project
+✨ Built with Streamlit | Telugu NLP Extractive Summarizer Project
 </div>
 """, unsafe_allow_html=True)
-
-# --------------------------
-# REQUIREMENTS (for reference)
-# --------------------------
-# streamlit
-# nltk
-# matplotlib
-# langdetect
