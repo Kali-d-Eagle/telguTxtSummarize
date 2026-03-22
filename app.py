@@ -73,8 +73,16 @@ def detect_language(text):
 
 
 def preprocess_text(text, lang):
-    sentences = sent_tokenize(text)
-    words = word_tokenize(text.lower())
+    # Custom sentence tokenization (avoids NLTK punkt dependency)
+    if lang == "Telugu":
+        sentences = text.split(".")
+    else:
+        sentences = text.replace("!", ".").replace("?", ".").split(".")
+
+    sentences = [s.strip() for s in sentences if s.strip()]
+
+    # Simple word tokenization
+    words = text.lower().split()
 
     stop_words = set(stopwords.words('english'))
     words = [word for word in words if word not in stop_words and word not in string.punctuation]
@@ -194,7 +202,7 @@ if summarize_btn:
 # --------------------------
 st.markdown("""
 <div class='footer'>
-Built with using Streamlit | Telugu NLP Project
+Built with ❤️ using Streamlit | Telugu NLP Project
 </div>
 """, unsafe_allow_html=True)
 
