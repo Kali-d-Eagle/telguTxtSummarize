@@ -181,5 +181,5 @@ if st.button("🚀 Generate Summary"):
 # --------------------------
 st.markdown("""
 ---
-✨ Built with Streamlit | Advanced NLP Summarizer Project
+✨ Built by Ak04 with Streamlit | Advanced NLP Summarizer Project
 """)
