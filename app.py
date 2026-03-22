@@ -9,7 +9,16 @@ import matplotlib.pyplot as plt
 from langdetect import detect
 
 # Download required resources
-nltk.download('punkt')
+import os
+import nltk
+
+# Ensure NLTK data works on Streamlit Cloud
+nltk_data_path = os.path.join(os.getcwd(), "nltk_data")
+os.makedirs(nltk_data_path, exist_ok=True)
+nltk.data.path.append(nltk_data_path)
+
+nltk.download('punkt', download_dir=nltk_data_path)
+nltk.download('stopwords', download_dir=nltk_data_path)
 nltk.download('stopwords')
 
 from nltk.corpus import stopwords
@@ -185,7 +194,7 @@ if summarize_btn:
 # --------------------------
 st.markdown("""
 <div class='footer'>
-Built with ❤️ using Streamlit | Telugu NLP Project
+Built with using Streamlit | Telugu NLP Project
 </div>
 """, unsafe_allow_html=True)
 
