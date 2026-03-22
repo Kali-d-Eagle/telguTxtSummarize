@@ -1,7 +1,5 @@
 streamlit
-langdetect
+pandas
 plotly
 scikit-learn
-wordcloud
-matplotlib
-numpy
+networkx
