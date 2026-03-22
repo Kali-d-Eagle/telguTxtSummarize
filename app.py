@@ -1,210 +1,184 @@
 import streamlit as st
+import streamlit.components.v1 as components
+import json
 import re
-import pandas as pd
-import plotly.express as px
-from collections import Counter
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import networkx as nx
 
-# --- PAGE CONFIG ---
-st.set_page_config(
-    page_title="Telugu AI Summarizer",
-    page_icon="✍️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# --- CONFIG ---
+st.set_page_config(page_title="AI Summarizer Pro", layout="wide")
 
-# --- CUSTOM GEMINI-INSPIRED UI ---
+# --- BACKEND LOGIC ---
+def summarize_logic(text, ratio=0.3):
+    if len(text) < 50: return "Text too short to summarize.", []
+    
+    sentences = re.split(r'(?<=[.!?]) +', text)
+    if len(sentences) < 3: return text, sentences
+    
+    tfidf = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = tfidf.fit_transform(sentences)
+    similarity_matrix = cosine_similarity(tfidf_matrix)
+    nx_graph = nx.from_numpy_array(similarity_matrix)
+    scores = nx.pagerank(nx_graph)
+    
+    ranked = sorted(((scores[i], s) for i, s in enumerate(sentences)), reverse=True)
+    num_sents = max(1, int(len(sentences) * ratio))
+    summary_list = [ranked[i][1] for i in range(num_sents)]
+    
+    final_summary = " ".join([s for s in sentences if s in summary_list])
+    keywords = re.findall(r'\w+', text.lower())[:10] # Simplified for demo
+    return final_summary, keywords
+
+# --- CUSTOM HTML/CSS/JS FRONTEND ---
+# This is a Gemini-inspired "Prompt Box" UI
+html_code = """
+<!DOCTYPE html>
+<html>
+<head>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #fdfdfd; margin: 0; display: flex; justify-content: center; }
+        .container { width: 90%; max-width: 800px; margin-top: 50px; }
+        .header { text-align: center; margin-bottom: 40px; }
+        .header h1 { font-weight: 600; color: #1f1f1f; font-size: 2.5rem; letter-spacing: -1px; }
+        
+        .chat-input-container {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 28px;
+            padding: 15px 25px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+            transition: 0.3s;
+            display: flex;
+            flex-direction: column;
+        }
+        .chat-input-container:focus-within {
+            box-shadow: 0 4px 25px rgba(0,0,0,0.1);
+            border-color: #4285f4;
+        }
+        textarea {
+            width: 100%;
+            border: none;
+            outline: none;
+            font-size: 16px;
+            resize: none;
+            min-height: 100px;
+            color: #3c4043;
+        }
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+        }
+        .btn-summarize {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 20px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn-summarize:hover { background: #1557b0; }
+        
+        .result-card {
+            margin-top: 30px;
+            background: #f8f9fa;
+            border-radius: 24px;
+            padding: 30px;
+            border: 1px solid #eee;
+            line-height: 1.6;
+            color: #1f1f1f;
+            display: none; /* Hidden until processing */
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Summarize anything.</h1>
+        </div>
+
+        <div class="chat-input-container">
+            <textarea id="textInput" placeholder="Paste your Telugu or English text here..."></textarea>
+            <div class="controls">
+                <span style="color: #70757a; font-size: 12px;">Extractive Method • Multilingual</span>
+                <button class="btn-summarize" onclick="sendData()">Summarize</button>
+            </div>
+        </div>
+
+        <div id="resultBox" class="result-card">
+            <div style="font-weight: 600; margin-bottom: 10px; color: #4285f4;">AI Summary</div>
+            <div id="summaryText"></div>
+        </div>
+    </div>
+
+    <script>
+        function sendData() {
+            const text = document.getElementById('textInput').value;
+            if(!text) return;
+            
+            // Communicate with Streamlit
+            window.parent.postMessage({
+                type: 'streamlit:setComponentValue',
+                value: text
+            }, '*');
+        }
+        
+        // Listen for summary from Python
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'summaryUpdate') {
+                document.getElementById('resultBox').style.display = 'block';
+                document.getElementById('summaryText').innerText = event.data.summary;
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
+# --- RENDER & BRIDGE ---
+# We use a trick: st.text_area is hidden, and HTML JS triggers the process
+input_val = components.html(html_code, height=600)
+
+# In a real app, you'd use a more complex bridge, but for a single file:
+# Let's use standard Streamlit for the trigger but style it heavily.
+
+# Since Streamlit's component bridge is one-way (JS -> Py), 
+# I will use a hybrid approach where Python handles the "Result Card" rendering 
+# to ensure the summary is actually visible and downloadable.
+
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-
-    .main {
-        background-color: #f8f9fa;
-    }
-
-    /* Glassmorphism Card */
-    .stTextArea textarea {
-        border-radius: 20px !important;
-        border: 1px solid #e0e0e0 !important;
-        padding: 20px !important;
-        background: white !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
-    }
-
-    .result-card {
-        background: white;
-        padding: 25px;
-        border-radius: 24px;
-        border: 1px solid #efefef;
-        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-    }
-
-    .stButton>button {
-        border-radius: 30px;
-        padding: 10px 25px;
-        background: linear-gradient(90deg, #4285F4, #34A853);
-        color: white;
-        border: none;
-        transition: all 0.3s ease;
-    }
-
-    .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(66, 133, 244, 0.4);
-    }
-
-    .sidebar-content {
-        background-color: #ffffff;
-        border-radius: 15px;
-        padding: 15px;
-    }
-
-    h1, h2, h3 {
-        color: #1f1f1f;
-        font-weight: 600;
-    }
-
-    .footer {
-        text-align: center;
-        color: #70757a;
-        font-size: 0.8rem;
-        margin-top: 50px;
-    }
+    .stTextArea, .stButton { display: none; } /* Hide the ugly default parts */
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# --- LOGIC FUNCTIONS ---
+# Custom Input Area
+raw_text = st.text_area("Hidden Input", key="hidden_input")
 
-def detect_language(text):
-    # Simple regex check for Telugu Unicode range
-    if re.search(r'[\u0c00-\u0c7f]', text):
-        return "Telugu"
-    return "English"
-
-def clean_text(text):
-    text = re.sub(r'\[[0-9]*\]', ' ', text)
-    text = re.sub(r'\s+', ' ', text)
-    return text
-
-def summarize_extractive(text, ratio=0.3):
-    # Split sentences (Handling common Telugu/English delimiters)
-    sentences = re.split(r'(?<=[.!?]) +', text)
-    if len(sentences) < 3:
-        return text, sentences
-
-    # TF-IDF Vectorization
-    tfidf = TfidfVectorizer(stop_words='english')
-    try:
-        tfidf_matrix = tfidf.fit_transform(sentences)
-        # Sentence similarity via Cosine Similarity (TextRank logic)
-        similarity_matrix = cosine_similarity(tfidf_matrix)
+if raw_text:
+    with st.spinner(" "):
+        summary, keywords = summarize_logic(raw_text)
         
-        # Rank sentences using PageRank logic via NetworkX
-        nx_graph = nx.from_numpy_array(similarity_matrix)
-        scores = nx.pagerank(nx_graph)
+        # Displaying the result in a modern container
+        st.markdown(f"""
+            <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
+                <div style="background: white; border-radius: 24px; padding: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #f0f0f0;">
+                    <h3 style="color: #4285f4; margin-top: 0;">✨ Summary</h3>
+                    <p style="font-size: 1.1rem; line-height: 1.7; color: #3c4043;">{summary}</p>
+                    <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+                    <div style="display: flex; gap: 10px;">
+                         <span style="background: #e8f0fe; color: #1967d2; padding: 5px 15px; border-radius: 15px; font-size: 12px;">Extractive AI</span>
+                         <span style="background: #e6f4ea; color: #137333; padding: 5px 15px; border-radius: 15px; font-size: 12px;">Telugu Supported</span>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
         
-        # Sort and pick top sentences
-        ranked_sentences = sorted(((scores[i], s) for i, s in enumerate(sentences)), reverse=True)
-        
-        num_sentences = max(1, int(len(sentences) * ratio))
-        summary_list = [ranked_sentences[i][1] for i in range(num_sentences)]
-        
-        # Re-order summary based on original appearance
-        final_summary = " ".join([s for s in sentences if s in summary_list])
-        return final_summary, sentences
-    except:
-        # Fallback to simple lead-based if TF-IDF fails (e.g. too short)
-        return " ".join(sentences[:2]), sentences
-
-def get_keywords(text, num=10):
-    words = re.findall(r'\w+', text.lower())
-    # Basic stopword filtering (could be expanded for Telugu)
-    stop_words = {'the', 'and', 'is', 'in', 'it', 'of', 'to', 'a', 'ఈ', 'మరియు', 'ఒక'}
-    filtered = [w for w in words if w not in stop_words and len(w) > 2]
-    return Counter(filtered).most_common(num)
-
-# --- UI LAYOUT ---
-
-# Sidebar
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/281/281764.png", width=50)
-    st.title("Settings")
-    st.markdown("---")
-    summary_length = st.select_slider(
-        "Summary Length",
-        options=["Short", "Medium", "Long"],
-        value="Medium"
-    )
-    length_map = {"Short": 0.15, "Medium": 0.3, "Long": 0.5}
-    
-    st.markdown("### Visualizations")
-    show_chart = st.checkbox("Show Keyword Frequency", value=True)
-    
-    if st.button("🗑️ Clear Input"):
-        st.session_state.input_text = ""
-        st.rerun()
-
-# Main Header
-st.markdown("<h1 style='text-align: center;'>AI Powered Multilingual Summarizer</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #5f6368;'>Expertly condense Telugu and English articles using Extractive AI.</p>", unsafe_allow_html=True)
-
-# Input Area
-input_text = st.text_area("Paste your text here...", height=250, key="main_input", placeholder="Enter Telugu or English content...")
-
-col1, col2, col3 = st.columns([1, 1, 1])
-with col2:
-    process_btn = st.button("✨ Generate Summary", use_container_width=True)
-
-# Processing
-if process_btn:
-    if not input_text.strip():
-        st.error("Please enter some text to summarize.")
-    else:
-        with st.spinner("Analyzing text patterns..."):
-            # Logic
-            lang = detect_language(input_text)
-            cleaned = clean_text(input_text)
-            summary, all_sentences = summarize_extractive(cleaned, ratio=length_map[summary_length])
-            keywords = get_keywords(cleaned)
-            
-            # Display Result
-            st.markdown("---")
-            
-            col_left, col_right = st.columns([2, 1])
-            
-            with col_left:
-                st.markdown(f"### 📝 {lang} Summary")
-                st.markdown(f'<div class="result-card">{summary}</div>', unsafe_allow_html=True)
-                
-                # Actions
-                st.download_button("📥 Download .txt", summary, file_name="summary.txt")
-                if st.button("📋 Copy to Clipboard"):
-                    st.toast("Summary copied to clipboard!") # Streamlit toast for UX
-            
-            with col_right:
-                st.markdown("### 📊 Insights")
-                st.metric("Original Sentences", len(all_sentences))
-                st.metric("Summary Reduction", f"{int((1 - len(summary)/len(input_text))*100)}%")
-                
-                if show_chart and keywords:
-                    df = pd.DataFrame(keywords, columns=['Word', 'Count'])
-                    fig = px.bar(df, x='Count', y='Word', orientation='h', 
-                                 title="Top Keywords", template="simple_white",
-                                 color_discrete_sequence=['#4285F4'])
-                    fig.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0))
-                    st.plotly_chart(fig, use_container_width=True)
-
-# Footer
-st.markdown("""
-    <div class="footer">
-        Built with ❤️ for Telugu NLP • 2026 AI Projects<br>
-        Using TextRank & TF-IDF Extractive Algorithms
-    </div>
-    """, unsafe_allow_html=True)
+        st.download_button("Download Summary", summary, file_name="summary.txt")
