@@ -1,4 +1,7 @@
 streamlit
-nltk
-matplotlib
 langdetect
+plotly
+scikit-learn
+wordcloud
+matplotlib
+numpy
