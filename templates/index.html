@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Multilingual Summarizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+        body { font-family: 'Inter', sans-serif; background: #0e0e10; color: #e5e7eb; }
+        .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .gradient-text { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .typing-cursor::after { content: '|'; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+    </style>
+</head>
+<body class="min-h-screen transition-colors duration-300">
+    <nav class="p-6 flex justify-between items-center max-w-6xl mx-auto">
+        <h1 class="text-xl font-semibold flex items-center gap-2">
+            <i data-lucide="sparkles" class="text-blue-400"></i>
+            <span class="gradient-text">AI Summarizer</span>
+        </h1>
+        <div class="flex gap-4">
+            <button onclick="toggleTheme()" class="p-2 rounded-full glass hover:bg-white/10 transition">
+                <i data-lucide="moon" id="theme-icon"></i>
+            </button>
+        </div>
+    </nav>
+
+    <main class="max-w-6xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <aside class="lg:col-span-3 space-y-6">
+            <div class="glass p-6 rounded-3xl">
+                <h3 class="text-sm font-medium mb-4 uppercase tracking-wider text-gray-400">Settings</h3>
+                
+                <div class="space-y-4">
+                    <label class="block text-sm">Summary Length</label>
+                    <input type="range" id="lengthRange" min="0.1" max="0.5" step="0.1" value="0.3" 
+                        class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                    <div class="flex justify-between text-xs text-gray-500">
+                        <span>Short</span><span>Medium</span><span>Long</span>
+                    </div>
+                </div>
+
+                <div class="mt-8 space-y-2">
+                    <button onclick="clearText()" class="w-full flex items-center justify-center gap-2 p-3 rounded-xl glass hover:bg-red-500/10 hover:border-red-500/50 transition text-sm">
+                        <i data-lucide="trash-2" class="w-4"></i> Clear All
+                    </button>
+                    <button onclick="downloadSummary()" class="w-full flex items-center justify-center gap-2 p-3 rounded-xl glass hover:bg-green-500/10 hover:border-green-500/50 transition text-sm">
+                        <i data-lucide="download" class="w-4"></i> Save .txt
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <div class="lg:col-span-9 space-y-6">
+            <div class="glass rounded-3xl overflow-hidden">
+                <textarea id="inputText" placeholder="Paste your Telugu or English text here..." 
+                    class="w-full h-48 p-6 bg-transparent border-none focus:ring-0 text-lg resize-none placeholder:text-gray-600"></textarea>
+                <div class="p-4 border-t border-white/5 flex justify-between items-center bg-white/5">
+                    <span class="text-xs text-gray-500" id="wordCount">0 words detected</span>
+                    <button onclick="processText()" id="processBtn" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-medium transition flex items-center gap-2">
+                        Summarize <i data-lucide="arrow-right" class="w-4"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div id="loader" class="hidden flex justify-center p-12">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            </div>
+
+            <div id="outputContainer" class="hidden space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div class="glass p-8 rounded-3xl relative">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-sm font-semibold uppercase text-blue-400 tracking-widest">AI Summary</h2>
+                        <button onclick="copyToClipboard()" class="p-2 hover:bg-white/10 rounded-lg transition">
+                            <i data-lucide="copy" class="w-4"></i>
+                        </button>
+                    </div>
+                    <p id="summaryText" class="text-lg leading-relaxed text-gray-200"></p>
+                    
+                    <div id="keywordChips" class="flex flex-wrap gap-2 mt-6"></div>
+                </div>
+
+                <div class="glass p-6 rounded-3xl">
+                    <h3 class="text-sm font-medium mb-4">Sentence Importance Analysis</h3>
+                    <canvas id="myChart" class="max-h-48"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="max-w-6xl mx-auto p-12 text-center text-gray-600 text-sm">
+        <p>Extractive Summarization Engine v1.0 • Built with Python & Flask</p>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+        let chart = null;
+
+        async function processText() {
+            const text = document.getElementById('inputText').value;
+            const length = document.getElementById('lengthRange').value;
+            if(!text) return alert("Please enter some text!");
+
+            // UI State
+            document.getElementById('processBtn').disabled = true;
+            document.getElementById('loader').classList.remove('hidden');
+            document.getElementById('outputContainer').classList.add('hidden');
+
+            const response = await fetch('/summarize', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ text, length })
+            });
+
+            const data = await response.json();
+            
+            // Success Logic
+            document.getElementById('loader').classList.add('hidden');
+            document.getElementById('outputContainer').classList.remove('hidden');
+            document.getElementById('processBtn').disabled = false;
+            
+            typeWriter(data.summary);
+            renderKeywords(data.keywords);
+            renderChart(data);
+        }
+
+        function typeWriter(text) {
+            const el = document.getElementById('summaryText');
+            el.innerHTML = '';
+            let i = 0;
+            function type() {
+                if (i < text.length) {
+                    el.innerHTML += text.charAt(i);
+                    i++;
+                    setTimeout(type, 10);
+                }
+            }
+            type();
+        }
+
+        function renderKeywords(words) {
+            const container = document.getElementById('keywordChips');
+            container.innerHTML = '';
+            words.forEach(word => {
+                const chip = document.createElement('span');
+                chip.className = 'px-3 py-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-full text-xs';
+                chip.innerText = `#${word}`;
+                container.appendChild(chip);
+            });
+        }
+
+        function renderChart(data) {
+            const ctx = document.getElementById('myChart').getContext('2d');
+            if(chart) chart.destroy();
+            chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Original Words', 'Summary Words'],
+                    datasets: [{
+                        data: [data.original_length, data.summary_length],
+                        backgroundColor: ['rgba(59, 130, 246, 0.2)', 'rgba(34, 197, 94, 0.2)'],
+                        borderColor: ['#3b82f6', '#22c55e'],
+                        borderWidth: 1
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } } }
+            });
+        }
+
+        function copyToClipboard() {
+            const text = document.getElementById('summaryText').innerText;
+            navigator.clipboard.writeText(text);
+            alert("Summary copied!");
+        }
+
+        function clearText() {
+            document.getElementById('inputText').value = '';
+            document.getElementById('outputContainer').classList.add('hidden');
+        }
+
+        function downloadSummary() {
+            const text = document.getElementById('summaryText').innerText;
+            const blob = new Blob([text], { type: 'text/plain' });
+            const anchor = document.createElement('a');
+            anchor.download = 'summary.txt';
+            anchor.href = (window.webkitURL || window.URL).createObjectURL(blob);
+            anchor.click();
+        }
+    </script>
+</body>
+</html>
